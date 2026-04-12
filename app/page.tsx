@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, LayoutGrid, BarChart3, LogOut, Loader2, Mail, X, Calendar as CalendarIcon, Infinity } from 'lucide-react';
+import { Plus, LogOut, Loader2, Mail, X } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import HabitCard from '@/components/HabitCard';
 import Analytics from '@/components/Analytics';
@@ -18,6 +18,10 @@ export interface Habit {
   color: string;
   icon: string;
   records: HabitRecord;
+  streak?: number;
+  last_completed?: string;
+  xp?: number;
+  level?: number;
 }
 
 export default function HabitTracker() {
@@ -28,14 +32,21 @@ export default function HabitTracker() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
+  // Login UX States
+  const [email, setEmail] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+
+  // Motivation State
+  const [motivationMsg, setMotivationMsg] = useState("");
+
+  // New Habit States
   const [newName, setNewName] = useState("");
   const [startDate, setStartDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [endDate, setEndDate] = useState<string>("");
   const [isOngoing, setIsOngoing] = useState(true);
 
   const today = new Date().toLocaleDateString('en-CA');
-  const habitsCompletedToday = habits.filter(h => h.records && h.records[today]).length;
-  const completionPercentage = habits.length > 0 ? Math.round((habitsCompletedToday / habits.length) * 100) : 0;
 
   useEffect(() => {
     const checkUser = async () => {
@@ -51,19 +62,24 @@ export default function HabitTracker() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchHabits();
-    else setHabits([]);
-  }, [user]);
-
-  useEffect(() => {
-    if (completionPercentage === 100 && habits.length > 0) {
-      const lastCelebration = localStorage.getItem('last_celebration');
-      if (lastCelebration !== today) {
-        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
-        localStorage.setItem('last_celebration', today);
+    if (user) {
+      fetchHabits();
+      
+      // Browser Reminders
+      if ("Notification" in window && Notification.permission !== "denied") {
+        Notification.requestPermission();
       }
+      const timer = setInterval(() => {
+        const now = new Date();
+        if (now.getHours() === 20 && now.getMinutes() === 0 && Notification.permission === "granted") {
+          new Notification("HabitFlow", { body: "Don't break your streak 🔥 Time to complete your habits!" });
+        }
+      }, 60000);
+      return () => clearInterval(timer);
+    } else {
+      setHabits([]);
     }
-  }, [completionPercentage, habits.length, today]);
+  }, [user]);
 
   const fetchHabits = async () => {
     const { data, error } = await supabase.from('habits').select('*').order('created_at', { ascending: true });
@@ -81,6 +97,9 @@ export default function HabitTracker() {
       color: colors[habits.length % colors.length],
       icon: "⚡",
       records: {},
+      streak: 0,
+      xp: 0,
+      level: 1
     };
     const { data, error } = await supabase.from('habits').insert([newHabit]).select();
     if (!error && data) {
@@ -103,12 +122,47 @@ export default function HabitTracker() {
 
   const toggleDate = async (habitId: string, dateStr: string) => {
     const habit = habits.find(h => h.id === habitId);
-    if (!habit) return;
+    if (!habit || !user) return;
+    
     const newRecords = { ...habit.records };
-    if (newRecords[dateStr]) delete newRecords[dateStr];
-    else newRecords[dateStr] = true;
-    setHabits(habits.map(h => h.id === habitId ? { ...h, records: newRecords } : h));
-    await supabase.from('habits').update({ records: newRecords }).eq('id', habitId);
+    const yesterday = new Date(Date.now() - 86400000).toLocaleDateString('en-CA');
+    
+    let { streak = 0, last_completed = null, xp = 0, level = 1 } = habit;
+
+    if (newRecords[dateStr]) {
+      // Unchecking
+      delete newRecords[dateStr];
+      if (dateStr === today) {
+        streak = Math.max(0, streak - 1);
+        xp = Math.max(0, xp - 10);
+      }
+    } else {
+      // Checking
+      newRecords[dateStr] = true;
+      
+      // Streak Math
+      if (dateStr === today) {
+        if (last_completed === yesterday) streak += 1;
+        else if (last_completed !== today) streak = 1;
+        last_completed = today;
+      }
+
+      // Gamification Math
+      xp += 10;
+      if (xp >= 100) { 
+        xp = 0; 
+        level += 1; 
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      }
+
+      // Motivation Loop
+      const msgs = ["🔥 Great job! Keep going!", "Discipline > Motivation", "Consistency builds success", "Small steps every day"];
+      setMotivationMsg(msgs[Math.floor(Math.random() * msgs.length)]);
+      setTimeout(() => setMotivationMsg(""), 4000);
+    }
+
+    setHabits(habits.map(h => h.id === habitId ? { ...h, records: newRecords, streak, last_completed, xp, level } : h));
+    await supabase.from('habits').update({ records: newRecords, streak, last_completed, xp, level }).eq('id', habitId);
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-[#020617]"><Loader2 className="animate-spin text-indigo-500" size={40} /></div>;
@@ -118,15 +172,37 @@ export default function HabitTracker() {
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-white/5 border border-white/10 p-10 rounded-[3rem] w-full max-w-md text-center backdrop-blur-xl">
         <h1 className="text-3xl font-black mb-2 tracking-tighter text-white uppercase italic">HabitFlow</h1>
         <p className="text-slate-500 mb-8">Login to sync habits across devices.</p>
-        <button 
-          onClick={() => {
-            const email = prompt("Enter your email:");
-            if (email) supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
-          }}
-          className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-2"
+        
+        {/* UX Fix: Better Login Form */}
+        <form 
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!email) return;
+            setLoginLoading(true);
+            await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
+            setEmailSent(true);
+            setLoginLoading(false);
+          }} 
+          className="w-full flex flex-col gap-3"
         >
-          <Mail size={20} /> Continue with Magic Link
-        </button>
+          <input 
+            type="email" 
+            autoFocus 
+            required
+            value={email} 
+            onChange={(e) => setEmail(e.target.value)} 
+            placeholder="Enter your email" 
+            className="w-full p-4 rounded-2xl bg-white/10 text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" 
+          />
+          <button 
+            type="submit" 
+            disabled={loginLoading || emailSent}
+            className="w-full py-4 bg-white text-black font-bold rounded-2xl flex items-center justify-center gap-2 disabled:opacity-50 transition-all"
+          >
+            {loginLoading ? "Sending..." : emailSent ? "✅ Magic Link Sent!" : "Continue with Magic Link"}
+          </button>
+          {emailSent && <p className="text-xs text-indigo-400 mt-2">Check your email. You can safely close this tab.</p>}
+        </form>
       </motion.div>
     </div>
   );
@@ -135,32 +211,23 @@ export default function HabitTracker() {
     <main className="min-h-screen bg-[#020617] text-slate-200 p-6 md:p-12">
       <div className="max-w-6xl mx-auto">
         <header className="flex flex-col md:flex-row justify-between items-center gap-6 mb-12">
+          
           <div className="text-center md:text-left">
             <h1 className="text-3xl font-black tracking-tighter text-white uppercase italic">HABITFLOW</h1>
-            <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest">{user.email}</p>
+            <p className="text-indigo-400 text-xs font-bold uppercase tracking-widest mt-1 min-h-[16px] transition-all">
+              {motivationMsg || `You completed ${habits.filter(h => Object.keys(h.records || {}).length > 0).length} habits this week 🚀`}
+            </p>
           </div>
-          <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-white/5">
-            <button onClick={() => setActiveTab('Dashboard')} className={`px-6 py-2 rounded-xl font-bold text-sm ${activeTab === 'Dashboard' ? 'bg-white/10 text-white' : 'text-slate-500'}`}>Dashboard</button>
-            <button onClick={() => setActiveTab('Analytics')} className={`px-6 py-2 rounded-xl font-bold text-sm ${activeTab === 'Analytics' ? 'bg-white/10 text-white' : 'text-slate-500'}`}>Analytics</button>
-          </div>
-          <div className="flex gap-3">
+
+          <div className="flex gap-3 w-full md:w-auto justify-center">
+             <div className="flex bg-slate-900/50 p-1 rounded-2xl border border-white/5 mr-2">
+              <button onClick={() => setActiveTab('Dashboard')} className={`px-4 md:px-6 py-2 rounded-xl font-bold text-sm ${activeTab === 'Dashboard' ? 'bg-white/10 text-white' : 'text-slate-500'}`}>Dashboard</button>
+              <button onClick={() => setActiveTab('Analytics')} className={`px-4 md:px-6 py-2 rounded-xl font-bold text-sm ${activeTab === 'Analytics' ? 'bg-white/10 text-white' : 'text-slate-500'}`}>Analytics</button>
+            </div>
             <button onClick={() => supabase.auth.signOut()} className="p-3 bg-white/5 border border-white/10 rounded-2xl text-slate-400 hover:text-white transition-all"><LogOut size={20}/></button>
-            <button onClick={() => setIsModalOpen(true)} className="bg-white text-black px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:scale-105 transition-transform"><Plus size={20} /> New Habit</button>
+            <button onClick={() => setIsModalOpen(true)} className="bg-white text-black px-4 md:px-6 py-3 rounded-2xl font-bold flex items-center gap-2 hover:scale-105 transition-transform"><Plus size={20} className="hidden md:block"/> New</button>
           </div>
         </header>
-
-        {activeTab === 'Dashboard' && habits.length > 0 && (
-          <div className="mb-12 bg-white/[0.03] border border-white/10 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div><h2 className="text-2xl font-bold text-white">Today's Focus</h2><p className="text-slate-400 text-sm mt-1">Completed {habitsCompletedToday} of {habits.length} habits.</p></div>
-            <div className="relative w-24 h-24 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90">
-                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-white/5" />
-                <circle cx="48" cy="48" r="40" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={251.2} strokeDashoffset={251.2 - (251.2 * completionPercentage) / 100} className="text-indigo-500 transition-all duration-1000" strokeLinecap="round" />
-              </svg>
-              <span className="absolute text-lg font-black text-white">{completionPercentage}%</span>
-            </div>
-          </div>
-        )}
 
         <AnimatePresence mode="wait">
           {activeTab === 'Dashboard' ? (
@@ -187,13 +254,21 @@ export default function HabitTracker() {
                 <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24}/></button>
               </div>
               <div className="space-y-5">
-                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Habit Name" className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none text-white" />
+                {/* UX Fix: Handle Enter Key */}
+                <input 
+                  type="text" 
+                  value={newName} 
+                  onChange={(e) => setNewName(e.target.value)} 
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddHabit()}
+                  placeholder="Habit Name" 
+                  className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none text-white focus:border-indigo-500 transition-colors" 
+                />
                 <div className="grid grid-cols-2 gap-4">
                   <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-white/5 border border-white/10 rounded-2xl p-4 text-white" />
                   <input type="date" value={endDate} disabled={isOngoing} onChange={(e) => setEndDate(e.target.value)} className={`bg-white/5 border border-white/10 rounded-2xl p-4 text-white ${isOngoing ? 'opacity-30' : ''}`} />
                 </div>
                 <button onClick={() => setIsOngoing(!isOngoing)} className="text-indigo-400 text-xs font-bold">{isOngoing ? "Switch to fixed duration" : "Set as Ongoing"}</button>
-                <button onClick={handleAddHabit} className="w-full py-4 rounded-2xl font-bold bg-white text-black mt-4">Create</button>
+                <button onClick={handleAddHabit} className="w-full py-4 rounded-2xl font-bold bg-white text-black mt-4 hover:bg-slate-200 transition-colors">Create</button>
               </div>
             </motion.div>
           </div>

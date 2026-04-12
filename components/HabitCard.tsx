@@ -20,7 +20,20 @@ export default function HabitCard({ habit, onToggle, onDelete, isConfirming }: P
           </div>
           <div>
             <h3 className="text-xl font-bold text-white">{habit.name}</h3>
-            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mt-1">
+            
+            {/* Gamification & Streak Badges */}
+            <div className="flex gap-2 mt-2">
+              {habit.streak > 0 && (
+                <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded-md font-black uppercase tracking-wider">
+                  🔥 {habit.streak} Day
+                </span>
+              )}
+              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded-md font-black uppercase tracking-wider">
+                Lvl {habit.level || 1} • {habit.xp || 0}/100 XP
+              </span>
+            </div>
+
+            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mt-2">
               {habit.end_date ? 'Goal Oriented' : '∞ Ongoing'}
             </p>
           </div>
