@@ -19,7 +19,7 @@ export interface Habit {
   icon: string;
   records: HabitRecord;
   streak?: number;
-  last_completed?: string;
+  last_completed?: string | null; /* <-- FIX: Added | null here */
   xp?: number;
   level?: number;
 }
