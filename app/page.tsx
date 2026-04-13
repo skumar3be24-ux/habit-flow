@@ -3,11 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, LogOut, Loader2, X } from 'lucide-react';
+import { Plus, LogOut, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import HabitCard from '@/components/HabitCard';
 import Analytics from '@/components/Analytics';
-import { format, isAfter, startOfToday, parseISO, subDays, differenceInDays } from 'date-fns';
+import { format, isToday, isFuture, startOfToday, parseISO, subDays, differenceInDays } from 'date-fns';
 
 export interface Completion { id: string; habit_id: string; completed_date: string; }
 export interface Habit { 
@@ -48,59 +48,68 @@ export default function HabitTracker() {
     }
   };
 
-  const calculateStreaks = (completions: string[]) => {
-    if (completions.length === 0) return { current: 0, best: 0 };
-    const sortedDates = Array.from(new Set(completions)).sort().reverse();
+  const calculateCurrentStreak = (dates: string[]) => {
     const todayStr = format(startOfToday(), 'yyyy-MM-dd');
-    const yesterdayStr = format(subDays(startOfToday(), 1), 'yyyy-MM-dd');
-    let current = 0;
-    let best = 0;
-    let tempBest = 0;
-    let checkDate = sortedDates.includes(todayStr) ? todayStr : sortedDates.includes(yesterdayStr) ? yesterdayStr : null;
-    if (checkDate) {
-      let d = parseISO(checkDate);
-      while (sortedDates.includes(format(d, 'yyyy-MM-dd'))) {
-        current++;
-        d = subDays(d, 1);
-      }
+    if (!dates.includes(todayStr)) return 0; // Rule: Must be completed today to have a streak
+    
+    let streak = 0;
+    let checkDate = startOfToday();
+    while (dates.includes(format(checkDate, 'yyyy-MM-dd'))) {
+      streak++;
+      checkDate = subDays(checkDate, 1);
     }
-    const allDatesAsc = [...sortedDates].reverse();
-    for (let i = 0; i < allDatesAsc.length; i++) {
-      if (i > 0) {
-        const diff = differenceInDays(parseISO(allDatesAsc[i]), parseISO(allDatesAsc[i-1]));
-        if (diff === 1) tempBest++;
-        else tempBest = 1;
-      } else { tempBest = 1; }
-      if (tempBest > best) best = tempBest;
+    return streak;
+  };
+
+  const calculateBestStreak = (dates: string[]) => {
+    if (dates.length === 0) return 0;
+    const sorted = Array.from(new Set(dates)).sort();
+    let max = 0, current = 1;
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = differenceInDays(parseISO(sorted[i]), parseISO(sorted[i-1]));
+      if (diff === 1) current++;
+      else { max = Math.max(max, current); current = 1; }
     }
-    return { current, best };
+    return Math.max(max, current);
   };
 
   const toggleCompletion = async (habitId: string, dateObj: Date) => {
-    if (isAfter(dateObj, startOfToday())) return;
-    const dateStr = format(dateObj, 'yyyy-MM-dd');
+    const todayStr = format(startOfToday(), 'yyyy-MM-dd');
+    const clickedDateStr = format(dateObj, 'yyyy-MM-dd');
+
+    // RULE: Only Today is editable. Future is disabled. Past is Read-Only.
+    if (!isToday(dateObj)) return;
+
     const habit = habits.find(h => h.id === habitId);
     if (!habit || !user) return;
-    const existing = habit.completions.find(c => c.completed_date === dateStr);
+
+    const existing = habit.completions.find(c => c.completed_date === clickedDateStr);
     let updatedCompletions = [...habit.completions];
     let { xp, level } = habit;
+
     if (existing) {
-      updatedCompletions = updatedCompletions.filter(c => c.completed_date !== dateStr);
-      await supabase.from('completions').delete().match({ habit_id: habitId, completed_date: dateStr });
+      updatedCompletions = updatedCompletions.filter(c => c.completed_date !== clickedDateStr);
+      await supabase.from('completions').delete().match({ habit_id: habitId, completed_date: clickedDateStr });
+      xp = Math.max(0, xp - 5);
     } else {
-      const { data } = await supabase.from('completions').insert([{ habit_id: habitId, user_id: user.id, completed_date: dateStr }]).select();
+      const { data } = await supabase.from('completions').insert([{ habit_id: habitId, user_id: user.id, completed_date: clickedDateStr }]).select();
       if (data) updatedCompletions.push(data[0]);
-      xp += 10;
+      
+      // RULE: +5 XP only on Today toggle
+      xp += 5;
       if (xp >= 100) { xp = 0; level += 1; confetti(); }
     }
-    const { current, best } = calculateStreaks(updatedCompletions.map(c => c.completed_date));
-    setHabits(habits.map(h => h.id === habitId ? { ...h, completions: updatedCompletions, xp, level, current_streak: current, best_streak: best } : h));
-    await supabase.from('habits').update({ xp, level, current_streak: current, best_streak: best }).eq('id', habitId);
+
+    const currentStreak = calculateCurrentStreak(updatedCompletions.map(c => c.completed_date));
+    const bestStreak = calculateBestStreak(updatedCompletions.map(c => c.completed_date));
+    
+    setHabits(habits.map(h => h.id === habitId ? { ...h, completions: updatedCompletions, xp, level, current_streak: currentStreak, best_streak: bestStreak } : h));
+    await supabase.from('habits').update({ xp, level, current_streak: currentStreak, best_streak: bestStreak }).eq('id', habitId);
   };
 
   const handleAddHabit = async () => {
     if (!newName.trim() || !user) return;
-    const { data } = await supabase.from('habits').insert([{ user_id: user.id, name: newName }]).select();
+    const { data } = await supabase.from('habits').insert([{ user_id: user.id, name: newName, level: 0, xp: 0 }]).select();
     if (data) { fetchData(); setNewName(""); setIsModalOpen(false); }
   };
 
@@ -111,24 +120,11 @@ export default function HabitTracker() {
 
   if (loading) return <div className="h-screen bg-[#0a0f1c] flex items-center justify-center"><Loader2 className="animate-spin text-white"/></div>;
 
-  if (!user) return (
-    <div className="h-screen bg-[#0a0f1c] flex items-center justify-center p-6">
-      <div className="bg-[#131b2f] p-10 rounded-[2rem] w-full max-w-md text-center border border-white/5 shadow-2xl">
-        <h1 className="text-3xl font-black text-white italic mb-2">HABITFLOW</h1>
-        <p className="text-slate-400 mb-8 uppercase font-bold text-xs tracking-widest">Login to track your habits</p>
-        <button onClick={() => {
-          const email = prompt("Enter email");
-          if(email) supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: window.location.origin } });
-        }} className="w-full py-4 bg-white text-black font-bold rounded-xl">Continue with Magic Link</button>
-      </div>
-    </div>
-  );
-
   return (
     <main className="min-h-screen bg-[#0a0f1c] text-slate-200 p-6 md:p-12">
       <div className="max-w-6xl mx-auto space-y-8">
         <header className="flex justify-between items-center">
-          <h1 className="text-3xl font-black text-white italic tracking-tighter">HABITFLOW</h1>
+          <h1 className="text-3xl font-black text-white italic tracking-tighter uppercase">HABITFLOW</h1>
           <div className="flex gap-4">
             <div className="flex bg-[#131b2f] p-1 rounded-xl border border-white/5">
               <button onClick={() => setActiveTab('Dashboard')} className={`px-6 py-2 rounded-lg text-sm font-bold ${activeTab === 'Dashboard' ? 'bg-white/10 text-white' : 'text-slate-500'}`}>Dashboard</button>
@@ -138,19 +134,21 @@ export default function HabitTracker() {
             <button onClick={() => supabase.auth.signOut()} className="p-2 bg-white/5 rounded-xl"><LogOut size={20}/></button>
           </div>
         </header>
+
         {activeTab === 'Dashboard' ? (
           <div className="grid gap-6">
-            {habits.map(h => <HabitCard key={h.id} habit={h} onToggle={toggleCompletion} onDelete={deleteHabit} onEdit={() => {}} />)}
+            {habits.map(h => <HabitCard key={h.id} habit={h} onToggle={toggleCompletion} onDelete={deleteHabit} />)}
           </div>
         ) : <Analytics habits={habits} />}
       </div>
+
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-[#131b2f] p-8 rounded-[2rem] w-full max-w-md border border-white/10 shadow-2xl">
-              <h2 className="text-xl font-bold text-white mb-6 uppercase tracking-tight">Create Habit</h2>
-              <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddHabit()} placeholder="Habit Name" className="w-full p-4 rounded-xl bg-black/30 border border-white/10 text-white outline-none mb-6" autoFocus />
-              <button onClick={handleAddHabit} className="w-full py-4 bg-white text-black font-bold rounded-xl shadow-lg">Create</button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="bg-[#131b2f] p-8 rounded-[2rem] w-full max-w-md border border-white/10">
+              <h2 className="text-xl font-bold text-white mb-6 uppercase">Create Habit</h2>
+              <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Habit Name" className="w-full p-4 rounded-xl bg-black/30 border border-white/10 text-white outline-none mb-6" autoFocus />
+              <button onClick={handleAddHabit} className="w-full py-4 bg-white text-black font-bold rounded-xl">Create</button>
             </motion.div>
           </div>
         )}
