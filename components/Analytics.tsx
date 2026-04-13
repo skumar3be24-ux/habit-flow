@@ -1,122 +1,93 @@
 "use client";
-
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { Habit } from '@/app/page';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
-import { motion } from 'framer-motion';
-import { Target, Zap, Trophy } from 'lucide-react';
+import { format, subDays, eachDayOfInterval } from 'date-fns';
 
 export default function Analytics({ habits }: { habits: Habit[] }) {
-  const [range, setRange] = useState<'7' | '30' | 'all'>('30');
-
-  const chartData = useMemo(() => {
-    const today = new Date();
-    const daysToView = range === '7' ? 7 : range === '30' ? 30 : 90;
-    const data = [];
-    
-    for (let i = daysToView - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(today.getDate() - i);
-      const dateStr = d.toLocaleDateString('en-CA');
-      const dailyCount = habits.reduce((acc, h) => (h.records && h.records[dateStr] ? acc + 1 : acc), 0);
-      
-      data.push({
-        date: dateStr.split('-').slice(1).join('/'),
-        count: dailyCount,
-      });
-    }
-    return data;
-  }, [habits, range]);
-
+  // Phase 2 & 3: Compute robust analytics from completions table
   const stats = useMemo(() => {
-    const totalImpact = habits.reduce((acc, h) => acc + (h.records ? Object.keys(h.records).length : 0), 0);
-    
-    // Calculate All-Time Max Streak
-    let allTimeMax = 0;
+    let totalCompletions = 0;
+    let maxStreak = 0;
+    const dailyCounts: { [key: string]: number } = {};
+    const habitStats = habits.map(h => ({ name: h.name, count: h.completions?.length || 0 }));
+
+    // Initialize last 14 days for the chart
+    const last14Days = eachDayOfInterval({ start: subDays(new Date(), 13), end: new Date() }).map(d => format(d, 'MMM dd'));
+    last14Days.forEach(d => dailyCounts[d] = 0);
+
     habits.forEach(habit => {
-      const dates = Object.keys(habit.records || {}).sort();
-      let currentStreak = 0;
-      let maxH = 0;
-      let lastDate: Date | null = null;
-
-      dates.forEach(dStr => {
-        const d = new Date(dStr);
-        if (lastDate && (d.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24) === 1) {
-          currentStreak++;
-        } else {
-          currentStreak = 1;
-        }
-        if (currentStreak > maxH) maxH = currentStreak;
-        lastDate = d;
-      });
-      if (maxH > allTimeMax) allTimeMax = maxH;
-    });
-
-    return { totalImpact, maxStreak: allTimeMax };
-  }, [habits]);
-
-  const weeklyData = useMemo(() => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const dist = days.map(day => ({ day, count: 0 }));
-    habits.forEach(h => {
-      Object.keys(h.records || {}).forEach(dateStr => {
-        const dayIndex = new Date(dateStr).getDay();
-        dist[dayIndex].count++;
+      totalCompletions += habit.completions?.length || 0;
+      if (habit.best_streak > maxStreak) maxStreak = habit.best_streak;
+      
+      habit.completions?.forEach(c => {
+        const dStr = format(new Date(c.completed_date), 'MMM dd');
+        if (dailyCounts[dStr] !== undefined) dailyCounts[dStr]++;
       });
     });
-    return dist;
+
+    const chartData = Object.keys(dailyCounts).map(date => ({ date, completed: dailyCounts[date] }));
+    const totalPossible = habits.length * 30; // Assuming 30 day window for simple score
+    const productivityScore = habits.length ? Math.round((totalCompletions / totalPossible) * 100) : 0;
+
+    return { totalCompletions, maxStreak, chartData, habitStats, productivityScore };
   }, [habits]);
+
+  if (habits.length === 0) return <div className="text-center text-slate-500 py-12">Add habits to see analytics.</div>;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] flex items-center gap-6">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-500/20 flex items-center justify-center text-indigo-400"><Target size={24} /></div>
-          <div><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Total Impact</p><h4 className="text-3xl font-black">{stats.totalImpact}</h4></div>
+    <div className="space-y-6">
+      {/* Metrics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-[#131b2f] border border-white/5 p-6 rounded-[2rem]">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Productivity Score</p>
+          <div className="text-4xl font-black text-indigo-400">{stats.productivityScore}%</div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] flex items-center gap-6">
-          <div className="w-14 h-14 rounded-2xl bg-orange-500/20 flex items-center justify-center text-orange-400"><Zap size={24} /></div>
-          <div><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Active Goals</p><h4 className="text-3xl font-black">{habits.length}</h4></div>
+        <div className="bg-[#131b2f] border border-white/5 p-6 rounded-[2rem]">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Total Completions</p>
+          <div className="text-4xl font-black text-white">{stats.totalCompletions}</div>
         </div>
-        <div className="bg-white/5 border border-white/10 p-8 rounded-[2.5rem] flex items-center gap-6">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 flex items-center justify-center text-emerald-400"><Trophy size={24} /></div>
-          <div><p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Best Streak</p><h4 className="text-3xl font-black">{stats.maxStreak}</h4></div>
+        <div className="bg-[#131b2f] border border-white/5 p-6 rounded-[2rem]">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Active Habits</p>
+          <div className="text-4xl font-black text-orange-400">{habits.length}</div>
+        </div>
+        <div className="bg-[#131b2f] border border-white/5 p-6 rounded-[2rem]">
+          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Best Global Streak</p>
+          <div className="text-4xl font-black text-green-400">{stats.maxStreak} 🔥</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white/5 border border-white/10 p-8 rounded-[3rem]">
-          <h3 className="text-xl font-bold mb-10">Daily Discipline</h3>
-          <div className="h-[300px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Daily Discipline Chart */}
+        <div className="bg-[#131b2f] border border-white/5 p-8 rounded-[2rem] lg:col-span-2">
+          <h3 className="text-xl font-bold text-white mb-6">Daily Discipline (Last 14 Days)</h3>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs><linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/><stop offset="95%" stopColor="#6366f1" stopOpacity={0}/></linearGradient></defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff05" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} allowDecimals={false} />
-                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '12px' }} itemStyle={{ color: '#fff' }} />
-                <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
-              </AreaChart>
+              <LineChart data={stats.chartData}>
+                <XAxis dataKey="date" stroke="#475569" fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke="#475569" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip cursor={{ stroke: 'rgba(255,255,255,0.1)', strokeWidth: 2 }} contentStyle={{ backgroundColor: '#1a233a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                <Line type="monotone" dataKey="completed" stroke="#6366f1" strokeWidth={4} dot={{ r: 4, fill: '#6366f1', strokeWidth: 0 }} activeDot={{ r: 8 }} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="bg-white/5 border border-white/10 p-8 rounded-[3rem]">
-          <h3 className="text-xl font-bold mb-2">Weekly Profile</h3>
-          <div className="h-[250px]">
+        {/* Habit Breakdown */}
+        <div className="bg-[#131b2f] border border-white/5 p-8 rounded-[2rem]">
+          <h3 className="text-xl font-bold text-white mb-6">Habit Breakdown</h3>
+          <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={weeklyData}>
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} />
-                <Bar dataKey="count" radius={[6, 6, 6, 6]}>
-                  {weeklyData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.count > 0 ? '#6366f1' : '#1e293b'} />
-                  ))}
-                </Bar>
+              <BarChart data={stats.habitStats} layout="vertical" margin={{ left: 0, right: 0 }}>
+                <XAxis type="number" hide />
+                <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} width={80} />
+                <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#1a233a', border: 'none', borderRadius: '12px', color: '#fff' }} />
+                <Bar dataKey="count" fill="#6366f1" radius={[0, 8, 8, 0]} barSize={24} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
