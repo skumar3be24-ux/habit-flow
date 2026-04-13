@@ -1,7 +1,7 @@
 "use client";
-import React, { useState } from 'react';
-import { MoreVertical, Check, X, Edit2, Trash2 } from 'lucide-react';
-import { format, subDays } from 'date-fns';
+import React from 'react';
+import { Trash2 } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isAfter, startOfToday, getDay } from 'date-fns';
 import { Habit } from '@/app/page';
 
 interface Props {
@@ -12,112 +12,70 @@ interface Props {
 }
 
 export default function HabitCard({ habit, onToggle, onDelete, onEdit }: Props) {
-  const [showMenu, setShowMenu] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState(habit.name);
-
-  // Generate last 30 days for the matrix
-  const days = Array.from({ length: 30 }).map((_, i) => subDays(new Date(), 29 - i));
-  
-  // Create a set of strings from completion dates for fast lookup
-  const completionDates = new Set(
-    habit.completions?.map(c => c.completed_date) || []
-  );
-
-  const handleSaveEdit = () => {
-    if (editName.trim() && editName !== habit.name) {
-      onEdit(habit.id, editName);
-    }
-    setIsEditing(false);
-    setShowMenu(false);
-  };
+  const today = startOfToday();
+  const monthStart = startOfMonth(new Date());
+  const monthEnd = endOfMonth(new Date());
+  const dateRange = eachDayOfInterval({ start: monthStart, end: monthEnd });
+  const startDay = getDay(monthStart); // 0 (Sun) to 6 (Sat)
+  const emptyDays = Array.from({ length: startDay });
+  const completionDates = new Set(habit.completions?.map(c => c.completed_date) || []);
 
   return (
-    <div className="bg-[#131b2f] border border-white/5 rounded-[2rem] p-8 relative overflow-visible">
-      <div className="flex justify-between items-start mb-6">
-        <div className="flex gap-4 items-center">
-          <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center text-xl shadow-inner">
+    <div className="bg-[#131b2f] border border-white/5 rounded-[2.5rem] p-8 relative shadow-xl">
+      <div className="flex justify-between items-start mb-8">
+        <div className="flex gap-5 items-center">
+          <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-2xl border border-white/10">
             {habit.icon || '⚡'}
           </div>
           <div>
-            {isEditing ? (
-              <div className="flex items-center gap-2">
-                <input 
-                  value={editName} 
-                  onChange={(e) => setEditName(e.target.value)} 
-                  onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit()}
-                  className="bg-black/40 border border-indigo-500 p-1 rounded text-white outline-none"
-                  autoFocus
-                />
-                <button onClick={handleSaveEdit} className="text-green-400 p-1"><Check size={18}/></button>
-                <button onClick={() => setIsEditing(false)} className="text-slate-400 p-1"><X size={18}/></button>
-              </div>
-            ) : (
-              <h3 className="text-xl font-bold text-white">{habit.name}</h3>
-            )}
-            <div className="flex gap-2 mt-1">
-              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-2 py-1 rounded font-black uppercase tracking-wider">
-                LVL {habit.level || 1} • {habit.xp || 0}/100 XP
+            <h3 className="text-2xl font-black text-white tracking-tight italic uppercase">{habit.name}</h3>
+            <div className="flex gap-3 mt-2">
+              <span className="text-[10px] bg-indigo-500/20 text-indigo-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-indigo-500/30">
+                LVL {habit.level}
               </span>
-              <span className="text-[10px] bg-orange-500/20 text-orange-400 px-2 py-1 rounded font-black uppercase tracking-wider">
-                🔥 {habit.current_streak || 0} DAY STREAK
+              <span className="text-[10px] bg-orange-500/20 text-orange-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-orange-500/30">
+                🔥 {habit.current_streak} DAY STREAK
+              </span>
+              <span className="text-[10px] bg-green-500/10 text-green-500/60 px-3 py-1 rounded-full font-black uppercase tracking-widest">
+                🏆 Best: {habit.best_streak}
               </span>
             </div>
           </div>
         </div>
-
-        {/* 3-Dot Dropdown Menu */}
-        <div className="relative">
-          <button 
-            onClick={() => setShowMenu(!showMenu)} 
-            className="p-2 text-slate-500 hover:text-white transition-colors"
-          >
-            <MoreVertical size={20}/>
-          </button>
-          
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 mt-2 w-36 bg-[#1a233a] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-20">
-                <button 
-                  onClick={() => { setIsEditing(true); setShowMenu(false); }} 
-                  className="w-full px-4 py-3 text-left text-sm text-white hover:bg-white/5 flex items-center gap-2 transition-colors"
-                >
-                  <Edit2 size={14}/> Edit Name
-                </button>
-                <button 
-                  onClick={() => { onDelete(habit.id); setShowMenu(false); }} 
-                  className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-white/5 flex items-center gap-2 transition-colors"
-                >
-                  <Trash2 size={14}/> Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+        <button onClick={() => onDelete(habit.id)} className="p-3 bg-white/5 text-slate-500 hover:text-red-400 rounded-2xl transition-all">
+          <Trash2 size={20}/>
+        </button>
       </div>
-
-      {/* Consistency Matrix Grid */}
-      <div className="flex flex-wrap gap-2">
-        {days.map((d, i) => {
-          const dateStr = format(d, 'yyyy-MM-dd');
-          const isDone = completionDates.has(dateStr);
-          
-          return (
-            <button 
-              key={i} 
-              onClick={() => onToggle(habit.id, d)} 
-              title={dateStr}
-              className={`w-8 h-8 rounded-lg text-[10px] font-bold transition-all duration-200 flex items-center justify-center
-                ${isDone 
-                  ? 'bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.4)]' 
-                  : 'bg-white/5 text-slate-600 hover:bg-white/10'
-                }`}
-            >
-              {format(d, 'd')}
-            </button>
-          );
-        })}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">{format(new Date(), 'MMMM yyyy')}</p>
+          <div className="flex gap-[1.1rem] text-[9px] font-black text-slate-600 uppercase pr-1">
+             <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-7 gap-3">
+          {emptyDays.map((_, i) => <div key={`empty-${i}`} />)}
+          {dateRange.map((date) => {
+            const dateStr = format(date, 'yyyy-MM-dd');
+            const isDone = completionDates.has(dateStr);
+            const isFuture = isAfter(date, today);
+            const isToday = isSameDay(date, today);
+            return (
+              <button
+                key={dateStr}
+                disabled={isFuture}
+                onClick={() => onToggle(habit.id, date)}
+                className={`aspect-square rounded-xl text-xs font-black transition-all relative flex items-center justify-center
+                  ${isDone ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' : 'bg-white/5 text-slate-500'}
+                  ${isFuture ? 'opacity-10 cursor-not-allowed' : 'hover:scale-110 active:scale-95'}
+                  ${isToday && !isDone ? 'ring-2 ring-indigo-500/40 text-indigo-400' : ''}`}
+              >
+                {format(date, 'd')}
+                {isToday && <div className="absolute -bottom-1 w-1 h-1 bg-indigo-400 rounded-full" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
