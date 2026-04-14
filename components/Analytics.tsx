@@ -1,6 +1,7 @@
 "use client";
 import React, { useMemo } from 'react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import { motion } from 'framer-motion';
 import { Habit } from '@/app/page';
 import { format, subDays, eachDayOfInterval } from 'date-fns';
 
