@@ -1,60 +1,82 @@
 "use client";
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import { Habit } from '@/app/page';
 import { format, subDays, eachDayOfInterval } from 'date-fns';
 
 export default function Analytics({ habits }: { habits: Habit[] }) {
-  const stats = useMemo(() => {
-    let totalCompletions = 0;
+  const { chartData, weeklyData } = useMemo(() => {
     const dailyCounts: { [key: string]: number } = {};
-    const last14Days = eachDayOfInterval({ start: subDays(new Date(), 13), end: new Date() });
+    const weeklyCounts: { [key: string]: number } = { 'Sun': 0, 'Mon': 0, 'Tue': 0, 'Wed': 0, 'Thu': 0, 'Fri': 0, 'Sat': 0 };
     
+    // Setup last 14 days for AreaChart
+    const last14Days = eachDayOfInterval({ start: subDays(new Date(), 13), end: new Date() });
     last14Days.forEach(d => dailyCounts[format(d, 'MMM dd')] = 0);
     
     habits.forEach(h => {
-      totalCompletions += h.completions.length;
-      h.completions.forEach(c => {
-        const d = format(new Date(c.completed_date), 'MMM dd');
-        if (dailyCounts[d] !== undefined) dailyCounts[d]++;
+      const records = h.records || {};
+      Object.keys(records).forEach(dateStr => {
+        const d = new Date(dateStr);
+        const formatDaily = format(d, 'MMM dd');
+        const formatWeekly = format(d, 'EEE'); // 'Sun', 'Mon', etc.
+        
+        if (dailyCounts[formatDaily] !== undefined) dailyCounts[formatDaily]++;
+        if (weeklyCounts[formatWeekly] !== undefined) weeklyCounts[formatWeekly]++;
       });
     });
 
-    const chartData = Object.keys(dailyCounts).map(date => ({ date, completed: dailyCounts[date] }));
-    const completionRate = habits.length ? Math.round((totalCompletions / (habits.length * 30)) * 100) : 0;
+    const cData = Object.keys(dailyCounts).map(date => ({ date, count: dailyCounts[date] }));
+    const wData = Object.keys(weeklyCounts).map(day => ({ day, count: weeklyCounts[day] }));
 
-    return { totalCompletions, chartData, completionRate };
+    return { chartData: cData, weeklyData: wData };
   }, [habits]);
 
   if (!habits.length) return <div className="p-10 text-center text-slate-500 mt-10 font-bold uppercase tracking-widest text-xs">Add habits to see analytics</div>;
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-[#131b2f] p-8 rounded-[2rem] border border-white/5 shadow-lg">
-          <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-[0.2em]">Completion Rate</p>
-          <div className="text-4xl font-black text-indigo-400">{stats.completionRate}%</div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        
+        {/* Daily Discipline AreaChart */}
+        <div className="lg:col-span-2 bg-white/5 border border-white/10 p-8 rounded-[3rem]">
+          <h3 className="text-xl font-bold mb-10 text-white">Daily Discipline</h3>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ffffff05" />
+                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} dy={10} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} allowDecimals={false} />
+                <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)', fontSize: '12px' }} itemStyle={{ color: '#fff' }} />
+                <Area type="monotone" dataKey="count" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-        <div className="bg-[#131b2f] p-8 rounded-[2rem] border border-white/5 shadow-lg">
-          <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-[0.2em]">Total Completions</p>
-          <div className="text-4xl font-black text-white">{stats.totalCompletions}</div>
-        </div>
-        <div className="bg-[#131b2f] p-8 rounded-[2rem] border border-white/5 shadow-lg">
-          <p className="text-[10px] font-black text-slate-500 uppercase mb-2 tracking-[0.2em]">Active Goals</p>
-          <div className="text-4xl font-black text-orange-400">{habits.length}</div>
-        </div>
-      </div>
 
-      <div className="bg-[#131b2f] p-8 rounded-[2.5rem] border border-white/5 h-80 shadow-lg">
-        <h3 className="text-lg font-black text-white italic mb-6 uppercase tracking-tight">Daily Discipline</h3>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={stats.chartData}>
-            <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 10, fontWeight: 'bold'}} />
-            <Tooltip cursor={{fill: 'rgba(255,255,255,0.02)'}} contentStyle={{backgroundColor: '#1a233a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '1rem', color: '#fff', fontWeight: 'bold'}} />
-            <Bar dataKey="completed" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={20} />
-          </BarChart>
-        </ResponsiveContainer>
+        {/* Weekly Profile BarChart */}
+        <div className="bg-white/5 border border-white/10 p-8 rounded-[3rem]">
+          <h3 className="text-xl font-bold mb-2 text-white">Weekly Profile</h3>
+          <div className="h-[250px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={weeklyData}>
+                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10}} />
+                <Bar dataKey="count" radius={[6, 6, 6, 6]}>
+                  {weeklyData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.count > 0 ? '#6366f1' : '#1e293b'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
       </div>
-    </div>
+    </motion.div>
   );
 }
