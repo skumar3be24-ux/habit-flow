@@ -26,17 +26,16 @@ export default function Analytics({ habits }: AnalyticsProps) {
     last14Days.forEach(d => dailyCounts[format(d, 'MMM dd')] = 0);
     
     habits.forEach(h => {
-      // Safely extract dates whether using the records object or completions array
-      const dates = h.records 
-        ? Object.keys(h.records).filter(k => h.records[k]) 
-        : (h.completions?.map(c => c.completed_date) || []);
+      // FIX: Strictly use `records` object. No more `completions` array type error.
+      const records = h.records || {};
+      const dates = Object.keys(records).filter(k => records[k]);
       
       const count = dates.length;
       totalCompletions += count;
       breakdown.push({ name: h.name, count });
 
       // Track Best Global Streak across all habits
-      const best = h.best_streak || h.streak || 0;
+      const best = h.streak || 0;
       if (best > globalBestStreak) globalBestStreak = best;
 
       // Populate Daily and Weekly Charts
