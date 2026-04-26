@@ -12,6 +12,7 @@ export type HabitRecord = { [date: string]: boolean };
 export interface Habit {
   id: string;
   name: string;
+  type: 'boolean' | 'numeric';
   startDate?: string;
   endDate?: string | null;
   color: string;
@@ -42,6 +43,11 @@ export default function HabitTracker() {
 
   // New Habit States
   const [newName, setNewName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [isOngoing, setIsOngoing] = useState(false);
+
+  const [habitType, setHabitType] = useState<'boolean' | 'numeric'>('boolean');
 
   useEffect(() => {
     const checkUser = async () => {
@@ -89,6 +95,7 @@ export default function HabitTracker() {
     const newHabit = {
       user_id: user.id,
       name: newName,
+      type: habitType,
       icon: "⚡",
       color: "#6366f1",
       xp: 0,
@@ -247,11 +254,11 @@ export default function HabitTracker() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-black/80 backdrop-blur-md" />
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative bg-[#0f172a] border border-white/10 p-8 rounded-[2.5rem] w-full max-w-md shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-white uppercase tracking-tight">Create Habit</h2>
+                <h2 className="text-2xl font-bold text-white">Create New Habit</h2>
                 <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24}/></button>
               </div>
               <div className="space-y-5">
@@ -259,17 +266,37 @@ export default function HabitTracker() {
                   type="text" 
                   value={newName} 
                   onChange={(e) => setNewName(e.target.value)} 
-                  onKeyDown={(e) => e.key === 'Enter' && !isSubmitting && handleAddHabit()}
-                  placeholder="e.g. Read 10 pages" 
+                  onKeyDown={(e) => e.key === 'Enter' && handleAddHabit()}
+                  placeholder="Habit Name" 
                   className="w-full bg-white/5 border border-white/10 rounded-2xl p-4 outline-none text-white focus:border-indigo-500 transition-colors" 
                   autoFocus
                 />
-                <button 
-                  onClick={handleAddHabit} 
-                  disabled={isSubmitting}
-                  className="w-full py-4 rounded-2xl font-bold bg-white text-black mt-4 hover:bg-slate-200 transition-colors disabled:opacity-50"
-                >
-                  {isSubmitting ? "Creating..." : "Create Habit"}
+
+                {/* HABIT TYPE SELECTOR */}
+                <div className="flex gap-3 bg-white/5 p-1.5 rounded-2xl border border-white/10">
+                  <button
+                    onClick={() => setHabitType('boolean')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${habitType === 'boolean' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Checkmark
+                  </button>
+                  <button
+                    onClick={() => setHabitType('numeric')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${habitType === 'numeric' ? 'bg-indigo-500 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Hours / Number
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none" />
+                  <input type="date" value={endDate} disabled={isOngoing} onChange={(e) => setEndDate(e.target.value)} className={`bg-white/5 border border-white/10 rounded-2xl p-4 text-white outline-none ${isOngoing ? 'opacity-30' : ''}`} />
+                </div>
+                <button onClick={() => setIsOngoing(!isOngoing)} className="text-indigo-400 text-xs font-bold hover:text-indigo-300 transition-colors">
+                  {isOngoing ? "Switch to fixed duration" : "Set as Ongoing"}
+                </button>
+                <button onClick={handleAddHabit} className="w-full py-4 rounded-2xl font-bold bg-white text-black mt-4 hover:bg-slate-200 transition-colors">
+                  Create Habit
                 </button>
               </div>
             </motion.div>
